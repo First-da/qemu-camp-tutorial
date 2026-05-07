@@ -113,22 +113,9 @@ typedef struct GPGPULane {
 #define EXEC_FUNC_FP(name, code) \
     static void __attribute__((unused)) exec_##name(exec_ctx_t *ctx, int lane_id) { \
         INIT_LANE_CONTEXT_FP(); \
-        /* sync_fcsr_to_fp_status */ \
-        do { \
-            uint8_t __frm = (l->fcsr >> 5) & 0x7; \
-            if (__frm <= 4) { \
-                l->fp_status.float_rounding_mode = __frm; \
-            } else { \
-                l->fp_status.float_rounding_mode = 0; /* RNE */ \
-            } \
-            l->fp_status.float_exception_flags = 0; \
-        } while(0); \
+        /* sync_fcsr_to_fp_status... */ \
         code \
-        /* sync_fp_status_to_fcsr */ \
-        do { \
-            uint8_t __fflags = l->fp_status.float_exception_flags & 0x1F; \
-            l->fcsr = (l->fcsr & ~0x1F) | __fflags; \
-        } while(0); \
+        /* sync_fp_status_to_fcsr... */ \
         FINISH_LANE_CONTEXT(); \
     }
 ```
