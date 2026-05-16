@@ -12,7 +12,7 @@
 
 本实验中 GPGPU 是一个挂载在 PCIe 总线上的外部设备。GPGPU 内部分为 互联前端 (gpgpu.c) 和 SIMT 执行后端 (gpgpu_core.c) 两部分。
 
-要如何理解 gpgpu 设备工作的机制呢？根据在cpu blog中提到的方法，拆解分析一个复杂系统通常分为
+要如何理解 gpgpu 设备工作的机制呢？根据在 cpu blog 中提到的方法，拆解分析一个复杂系统通常分为
 
 > 理解一个复杂系统的方式：
 >
@@ -228,11 +228,11 @@ Block(0,0,0): block_id_linear=0
 ```c
 int gpgpu_core_exec_kernel(GPGPUState *s)
 {
-    for (int bx = 0; bx < s->kernel.grid_dim[0]; bx++)     // ← 第一层: Grid
+    for (int bx = 0; bx < s->kernel.grid_dim[0]; bx++)     // ← 第一层：Grid
     for (int by = 0; by < s->kernel.grid_dim[1]; by++)
     for (int bz = 0; bz < s->kernel.grid_dim[2]; bz++) {
         uint32_t block_id[3] = {bx, by, bz};
-        for (int w = 0; w < num_warps; w++) {               // ← 第二层: Block→Warp
+        for (int w = 0; w < num_warps; w++) {               // ← 第二层：Block→Warp
             int num_threads = MIN(32, threads_per_block - w*32);
             gpgpu_core_init_warp  // ← 初始化 Warp
             gpgpu_core_exec_warp  // ← 执行 Warp
@@ -340,7 +340,7 @@ lane->gpr[0] = 0;  // x0 永远是 0
 
 在计算机编程中底数默认是 2, 不表示，将有效数字的绝对值和符号位拆开，也就得到了三要素：
 
-符号(Sign)，指数(Exponent), 有效数字(Mantissa)。
+符号 (Sign)，指数 (Exponent), 有效数字 (Mantissa)。
 
 在 ieee754 中单精度浮点的 bit 表示为
 
