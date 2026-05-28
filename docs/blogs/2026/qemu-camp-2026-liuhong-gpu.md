@@ -18,8 +18,7 @@
 
 ### GPU 实验理解概述
 
-设备建模最终是转化为对设备寄存器的访问，通过访问寄存器触发相关操作。
-GPGPU实验主要目标是模拟RISC-V体系下对GPU的寄存器正确读写，完成简化版的RISC-V指令解释器，包括RV32I/RV32F、低精度浮点扩展。
+设备建模的核心是通过 MMIO 寄存器访问触发设备行为。GPGPU 实验的主要目标是模拟 RISC‑V 体系下的 GPU 寄存器读写、VRAM 访问、DMA 传输、SIMT 上下文调度，并实现一个简化的 RV32I/RV32F 指令解释器（含低精度浮点扩展）。
 
 ### 实验内容
 
@@ -69,7 +68,7 @@ static void gpgpu_realize(PCIDevice *pdev, Error **errp)
 }
 ```
 
-例如 Guest CPU 读写 BAR0 地址时，QEMU 会自动调用回调函数 `gpgpu_ctrl_read/write`。
+例如 Guest CPU 读写 BAR0 地址时，QEMU 会通过 `MemoryRegionOps`（即 `gpgpu_ctrl_ops`）自动调用回调函数 `gpgpu_ctrl_read/write`，传入 **BAR 内部偏移量** 和 **设备状态指针**。
 
 **阶段2：Guest 内核驱动初始化，进行 PCIe 设备发现/Probe。**
 
@@ -158,7 +157,7 @@ static inline void decode_and_exec(GPGPUState *s, GPGPULane *lane, uint32_t inst
     ...
 ```
 
-译码过程中使用了相当多的 `switch case` 语句，单纯堆代码不是好的选择，应该使用宏来优化。
+译码过程中使用了相当多的 `switch case` 语句，单纯堆代码不是好的选择。
 
 **阶段6：执行 (execute)**
 
@@ -179,7 +178,7 @@ case 0x07:
     }
     ...
 ```
-6.2 模拟 `fcvt.e2m1.s fd, fs1` — FP32 → E2M1，高精度转低精度，将 `abs_val` 与各 E2M1 代表值的 FP32 阈值进行比较，找到落在哪个区间，然后按舍入模式选择。
+6.2 模拟 fcvt.e2m1.s fd, fs1（FP32 → E2M1）。由于 E2M1 仅能表示 0/0.5/1.0/1.5/2.0/3.0/4.0/6.0 共 8 个正数值，转换时取 FP32 输入的绝对值的位模式（uint32_t），与各相邻 E2M1 代表值的 FP32 中点阈值做整数比较以确定所属区间。超出最大值 6.0 的输入饱和到 ±6.0，NaN/Inf 同样饱和。最后加回符号位得到 4-bit 结果。
 
 区间划分 (正半轴)：
 
@@ -208,23 +207,21 @@ case 1: {
         e2m1_result = sign ? 0xF : 0x7;
     } else {
         if (abs_val < 0x3D800000U) {
-            e2m1_result = 0x0;  // 0 or 0.5
-        } else if (abs_val < 0x3F400000U) {  // < 0.5
+            e2m1_result = 0x0; 
+        } else if (abs_val < 0x3F400000U) { 
             e2m1_result = 0x1;  // 0.5
-        } else if (abs_val < 0x3FA00000U) {  // ~1.2 (1.0 和 1.5 之间的判定点)
-            // 在 0.5 ~ 1.5 中点附近: 需要看具体舍入
+        } else if (abs_val < 0x3FA00000U) { 
             e2m1_result = 0x2;  // 1.0 (默认 RTZ/RNE)
-        } else if (abs_val < 0x3FE00000U) {  // ~2.25
+        } else if (abs_val < 0x3FE00000U) { 
             e2m1_result = 0x3;  // 1.5
-        } else if (abs_val < 0x40200000U) {  // ~3.75
+        } else if (abs_val < 0x40200000U) { 
             e2m1_result = 0x4;  // 2.0
-        } else if (abs_val < 0x40600000U) {  // ~5.5
+        } else if (abs_val < 0x40600000U) {  
             e2m1_result = 0x5;  // 3.0
-        } else if (abs_val < 0x40A00000U) {  // ~7 (超过6的一半?)
+        } else if (abs_val < 0x40A00000U) { 
             e2m1_result = 0x6;  // 4.0
         } else {
-            // ★ 超过最大值范围 → 饱和到 6.0!
-            e2m1_result = 0x7;  // 6.0 (E2M1 max)
+            e2m1_result = 0x7;  // 6.0
         }
     }
     /* 加回符号位 */
@@ -240,19 +237,15 @@ break;
 
 ### 问题
 
-1. **对一些元概念和建模思想（如 MemoryRegion）缺乏了解时直接使用 AI 工具效率很低，先建立概念体系才能真正加速。**
+1. 对一些元概念和建模思想（如 MemoryRegion）缺乏了解时直接使用 AI 工具效率很低，先建立概念体系才能真正加速。
 
-2. **代码较为冗余，不够简洁，可以让 AI 重新审查代码。**
+2. 代码较为冗余，不够简洁，可以让 AI 重新审查代码。
 
-3. **缺乏建模概念和架构体系知识，对于设备的行为和模拟器的行为不能很好地对应。**
+3. 缺乏建模概念和架构体系知识，对于设备的行为和模拟器的行为不能很好地对应。
 
 ---
 
 ### 总结
 
-1. **理解了 QEMU 如何模拟 CPU 访问 VRAM，以及 GPU 如何模拟访问 VRAM。**
-
-2. **掌握了 GDB 调试复杂项目的方法。**
-
-3. **初步理解了 SIMT 架构的执行流程。**
+理解了 QEMU 设备建模的核心机制（PCI 注册、MemoryRegion/BAR 映射、MMIO 回调），掌握了 SIMT 架构下 Grid/Block/Warp 的调度与 RV32I/RV32F 指令解释器的简单实现方法，熟悉了 VRAM 访问和 DMA 传输的模拟路径。初步掌握 GDB 调试复杂项目的方法。后续继续使用 AI 辅助，多读 QEMU 源码以加深理解。
 
